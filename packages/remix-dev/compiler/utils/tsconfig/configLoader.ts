@@ -1,4 +1,5 @@
 import * as path from "path";
+import invariant from "../../../invariant";
 
 import { tsConfigLoader } from "./tsConfigLoader";
 
@@ -26,7 +27,7 @@ export type ConfigLoaderResult =
   | ConfigLoaderFailResult;
 
 export function loadTsConfig(cwd: string = process.cwd()): ConfigLoaderResult {
-  return configLoader({ cwd: cwd });
+  return configLoader({ cwd });
 }
 
 export function configLoader({ cwd }: ConfigLoaderParams): ConfigLoaderResult {
@@ -43,13 +44,8 @@ export function configLoader({ cwd }: ConfigLoaderParams): ConfigLoaderResult {
     };
   }
 
-  if (!loadResult.baseUrl) {
-    let file = path.basename(loadResult.tsConfigPath);
-    let relative = path.relative(cwd, loadResult.tsConfigPath);
-    throw new Error(
-      `🚨 "${file}" at "${relative}" does not have a compilerOptions.baseUrl property`
-    );
-  }
+  // we should have already configured the baseUrl by now
+  invariant(loadResult.baseUrl, "baseUrl is required, but was not set");
 
   let tsConfigDir = path.dirname(loadResult.tsConfigPath);
   let absoluteBaseUrl = path.join(tsConfigDir, loadResult.baseUrl);

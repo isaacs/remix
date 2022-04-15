@@ -2,6 +2,7 @@ import * as path from "path";
 import * as fs from "fs";
 import JSON5 from "json5";
 import stripBom from "strip-bom";
+import * as colors from "../../../colors";
 
 /**
  * Typing for the parts of tsconfig that we care about
@@ -49,7 +50,10 @@ function loadSync(cwd: string): TsConfigLoaderResult {
       paths: undefined,
     };
   }
+
   let config = parseTsConfig(configPath);
+
+  writeConfigurationDefaults(config, configPath);
 
   return {
     tsConfigPath: configPath,
@@ -150,4 +154,123 @@ function parseTsConfig(
     };
   }
   return config;
+}
+
+type DesiredCompilerOptionsShape = {
+  [key: string]: { suggested: any } | { value: any; reason: string };
+};
+
+function getDesiredCompilerOptions(): DesiredCompilerOptionsShape {
+  return {
+    // These are suggested values and will be set when not present in the
+    // tsconfig.json
+    target: { suggested: "ES2019" },
+    lib: { suggested: ["DOM", "DOM.Iterable", "ES2019"] },
+    allowJs: { suggested: true },
+    strict: { suggested: true },
+    baseUrl: { suggested: "." },
+    forceConsistentCasingInFileNames: { suggested: true },
+
+    // These values are required and cannot be changed by the user
+    // Keep this in sync with esbuild
+    esModuleInterop: {
+      value: true,
+      reason: "requirement for esbuild",
+    },
+    isolatedModules: {
+      value: true,
+      reason: "requirement for esbuild",
+    },
+    jsx: {
+      value: "react-jsx",
+      reason: "requirement for esbuild",
+    },
+    moduleResolution: {
+      value: "node",
+      reason: "to match esbuild",
+    },
+    resolveJsonModule: {
+      value: true,
+      reason: "to match esbuild",
+    },
+    noEmit: {
+      value: true,
+      reason: "Remix takes care of building everything in `remix build`.",
+    },
+  };
+}
+
+export function writeConfigurationDefaults(config: any, configPath: string) {
+  let configType = path.basename(configPath);
+
+  let suggestedActions: string[] = [];
+  let requiredActions: string[] = [];
+
+  let desiredCompilerOptions = getDesiredCompilerOptions();
+  for (let optionKey of Object.keys(desiredCompilerOptions)) {
+    let check = desiredCompilerOptions[optionKey];
+    if ("suggested" in check) {
+      if (!(optionKey in config)) {
+        let optionValue = config.compilerOptions[optionKey];
+        if (optionValue === undefined) {
+          optionValue = check.suggested;
+          suggestedActions.push(
+            colors.blue(optionKey) +
+              " was set to " +
+              colors.bold(check.suggested)
+          );
+        }
+      }
+    } else if ("value" in check) {
+      let optionValue = config.compilerOptions[optionKey];
+      if (check.value !== optionValue) {
+        config.compilerOptions[optionKey] = check.value;
+        requiredActions.push(
+          colors.blue(optionKey) +
+            " was set to " +
+            colors.bold(check.value) +
+            ` (${check.reason})`
+        );
+      }
+    }
+  }
+
+  if (!("include" in config)) {
+    config.include = ["remix.env.d.ts", "**/*.ts", "**/*.tsx"];
+    suggestedActions.push(
+      colors.blue("include") +
+        " was set to " +
+        colors.bold(`['remix.env.d.ts', '**/*.ts', '**/*.tsx']`)
+    );
+  }
+
+  if (suggestedActions.length < 1 && requiredActions.length < 1) {
+    return;
+  }
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  if (suggestedActions.length) {
+    console.log(
+      `The following suggested values were added to your ${colors.blue(
+        `"${configType}"`
+      )}. These values ${colors.bold(
+        "can be changed"
+      )} to fit your project's needs:\n`
+    );
+
+    suggestedActions.forEach((action) => console.log(`\t- ${action}`));
+    console.log("");
+  }
+
+  if (requiredActions.length) {
+    console.log(
+      `The following ${colors.bold(
+        "mandatory changes"
+      )} were made to your ${colors.blue(configType)}:\n`
+    );
+
+    requiredActions.forEach((action) => console.log(`\t- ${action}`));
+    console.log("");
+  }
 }
